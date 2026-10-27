@@ -1,5 +1,4 @@
-# 🩺 Token Doctor (`token-doctor`)
-
+# 🩺 Token Doctor (`token-doctor`)  Token 健檢醫生
 > **Stop burning API tokens on prompt bloat and context rot.**  
 > A lightweight diagnostic & auto-healing CLI for AI agent development environments (Antigravity, Claude Code, Cursor, Windsurf).
 
