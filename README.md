@@ -3,15 +3,21 @@
 > **Stop burning API tokens on prompt bloat and context rot.**  
 > A lightweight diagnostic & auto-healing CLI for AI agent development environments (Antigravity, Claude Code, Cursor, Windsurf).
 
+<p align="left">
+  <a href="README.md"><b>English</b></a> |
+  <a href="README.zh-TW.md"><b>繁體中文</b></a>
+</p>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Organization](https://img.shields.io/badge/Maintained%20by-Captain%20Intelligence%20Tech-0A66C2.svg)](https://github.com/captain-intelligence-tech)
 
 ---
 
 ## 🌟 Why Token Doctor?
 
-In modern AI-assisted engineering, agents like **Antigravity**, **Claude Code**, and **Cursor** automatically ingest files like `AGENTS.md`, `GEMINI.md`, and `CLAUDE.md` on **every single interaction**.
+In modern AI-assisted engineering, agents like **Antigravity**, **Claude Code**, **Cursor**, and **Windsurf** automatically ingest workspace instruction files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `.cursorrules`) on **every single interaction**.
 
 When these instruction files become bloated with:
 - ❌ **Leaked Code Standards** (e.g., component line limits, CSS rules, framework specifics)
@@ -53,21 +59,21 @@ token-doctor
 Output:
 ```text
 ================================================================
-🩺 Token 健檢醫生 - 專案健康診斷報告
-📂 專案名稱: customer-web (/Users/tony/Documents/Code/customer-web)
+🩺 Token Doctor - Workspace Health Report
+📂 Project: my-app (/Users/developer/Code/my-app)
 ================================================================
-📊 健康綜合評分: 70 / 100 [輕度超重 (Minor Spillover)]
-⚡ 預估每輪對話靜態底噪: ~2,450 Tokens (建議目標: < 1,200 Tokens)
+📊 Health Score: 70 / 100 [Minor Spillover]
+⚡ Estimated Prompt Noise: ~2,450 Tokens / turn (Target: < 1,200 Tokens)
 
-【🔍 病灶盤點與診斷清單】
+[🔍 Diagnostic Findings & Symptoms]
 ----------------------------------------------------------------
-🚨 [代碼標準外溢] AGENTS.md (第 5,23 行) 混入組件行數、樣式或框架調用規範！(扣 15 分)
-⚠️  [文檔體積過重] AGENTS.md 高達 71 行，已偏離 20~30 行純粹業務指針的標準。(扣 15 分)
+🚨 [Code Standard Spillover] AGENTS.md (lines 5,23) leaks styling, framework, or line-count rules! (-15 pts)
+⚠️  [Bloated Context] AGENTS.md is 71 lines, exceeding the recommended 20-30 line context pointer. (-15 pts)
 ----------------------------------------------------------------
-💊 【醫生處方箋 (Recommendations)】
-  • 將代碼與樣式規範安全剪下，移植至 CODING_STANDARDS.md
+💊 [Doctor Recommendations]
+  • Isolate coding & styling rules into CODING_STANDARDS.md
 
-👉 想要自動完成上述修復？請在終端機執行：
+👉 To automatically heal all issues, run in your terminal:
    token-doctor --heal
 ================================================================
 ```
@@ -79,12 +85,14 @@ token-doctor --heal
 Automatically:
 - ✅ Isolates code standards from `AGENTS.md` into `CODING_STANDARDS.md`.
 - ✅ Removes duplicate global rules.
-- ✅ Backs up and removes conflicting `GEMINI.md`.
+- ✅ Backs up and deactivates conflicting `GEMINI.md`.
 - ✅ Ensures `.scratch/` ticket sandbox exists with `.gitignore`.
 
-### 3. Diagnose Any Path
+### 3. Language Selection (Bilingual CLI)
+Token Doctor automatically detects your terminal language (`LANG`/`LC_ALL`), but you can explicitly specify it:
 ```bash
-token-doctor /path/to/any/project
+token-doctor --lang en    # English output
+token-doctor --lang zh    # Traditional Chinese output
 ```
 
 ### 4. CI/CD & JSON Output
@@ -99,7 +107,7 @@ token-doctor --json
 Token Doctor comes bundled with an official Agent Skill for **Antigravity** and **Claude Code**:
 
 1. Copy `skills/token-doctor` to your agent skills directory (`~/.gemini/config/plugins/...` or `.agents/skills/`).
-2. Inside your IDE, simply type:
+2. Inside your IDE chat, simply type:
    ```text
    /token-doctor
    ```
@@ -107,18 +115,19 @@ Token Doctor comes bundled with an official Agent Skill for **Antigravity** and 
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & Community Roadmap
 
-We welcome contributions from the community!
-- [ ] Support Cursor `.cursorrules` / `.cursor/rules` diagnostic checks
-- [ ] Support Windsurf `.windsurfrules` checks
-- [ ] Add AST-based code standard extraction
-- [ ] Web UI Dashboard
+We welcome developers worldwide to collaborate and expand Token Doctor!
+- [ ] Add support for Cursor `.cursorrules` and `.cursor/rules`
+- [ ] Add support for Windsurf `.windsurfrules`
+- [ ] Add token cost visualization / interactive terminal UI (TUI)
+- [ ] Support AST-based automated code standard extraction
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution guidelines.
 
 ---
 
 ## 📄 License
 
-MIT License. Free and open source for everyone.
+Maintained with ❤️ by [Captain Intelligence Tech 凱騰智慧科技](https://github.com/captain-intelligence-tech).  
+Licensed under the [MIT License](LICENSE).
