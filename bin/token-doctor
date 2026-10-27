@@ -91,6 +91,8 @@ EOF
     exit 0
 }
 
+SHOW_HELP=false
+
 # Argument parsing
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -128,7 +130,8 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         -h|--help)
-            show_help
+            SHOW_HELP=true
+            shift
             ;;
         *)
             if [ -d "$1" ]; then
@@ -145,6 +148,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+[ "$SHOW_HELP" = true ] && show_help
 
 # ------------------------------------------------------------------------------
 # Action 1: Audit Skills (--skills)

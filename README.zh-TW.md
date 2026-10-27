@@ -17,20 +17,37 @@
 
 ## 🌟 為什麼需要 Token Doctor？
 
-在現代 AI 協同工程中，**Antigravity**、**Claude Code**、**Cursor** 與 **Windsurf** 等 Agent 會在**每一次對話時，無差別載入**專案內的設定檔（如 `AGENTS.md`、`GEMINI.md`、`CLAUDE.md`、`.cursorrules`）。
+在現代 AI 協同工程中，**Antigravity**、**Claude Code**、**Cursor** 與 **Windsurf** 等 Agent 會在**每一次對話時，無差別載入**全域環境與專案內的所有設定檔。
 
-當這些規則文件隨時間推移產生下列病灶：
-- ❌ **代碼標準外溢**（如混入組件行數上限、CSS 樣式規範、框架調用細節）
-- ❌ **全域指令重複定義**（如重複宣告 Conventional Commits 或語言格式）
-- ❌ **衝突規則雙重載入**（如根目錄同時存在 `GEMINI.md` 與 `AGENTS.md`）
-- ❌ **常駐技能底噪洩漏**（未配置 `disable-model-invocation: true` 的技能每輪對話強制注入，累積數千 Tokens 靜態底噪）
+當開發環境隨時間推移，往往不知不覺累積以下三大層級的「Token 毒瘤」：
 
-你的 AI 環境將面臨嚴重的 **「上下文腐敗 (Context Rot)」**，導致：
-1. **Token 嚴重浪費**：每輪對話平白燃燒 3,000+ 靜態底噪 Tokens。
-2. **AI 智商衰減**：產生注意力「迷失於中段 (Lost in the middle)」的認知劣化。
-3. **回應延遲飆升**：每次推論皆因龐大的前置 Prompt 產生額外延遲。
+### 1. 專案規則外溢 (Workspace Context Spillover)
+- ❌ **代碼標準外溢**：`AGENTS.md` 混入組件行數上限、CSS 樣式規範、框架調用等細節，讓實作 Agent 提前吃滿無關記憶。
+- ❌ **全域指令重複宣告**：在專案內反覆定義 Conventional Commits、繁體中文或 CLI 偏好，造成規則重複雙重載入。
+- ❌ **衝突檔案雙重載入**：專案根目錄同時殘留 `GEMINI.md` 與 `AGENTS.md`，觸發 AI 雙重注入。
 
-**Token Doctor** 能在數毫秒內全面掃描專案規則、代碼標準與**技能設定 (Skills)**，產出 0-100 健康評分，並提供**一鍵自動手術 (`--heal`)**，讓你的 AI 上下文重回極致精純！
+### 2. 官方預裝與外掛 Skills 濫發 (Skills Overload & Leak)
+- ❌ **官方擴充套件默默預裝大量技能**：例如 IDE 官方大數據套件（如 Google DataCloud）或各類外掛，預裝了 20~100+ 個 Skills。
+- ❌ **缺乏按需約束宣告**：多數技能未宣告 `disable-model-invocation: true`，導致 AI 在**每一輪對話**都必須強制閱讀所有技能的名稱與詳細說明，每輪對話平白燒掉 **10,000 ~ 20,000+ 靜態底噪 Tokens**！
+
+### 3. MCP 伺服器與 Tool Schema 超載 (MCP Bloat)
+- ❌ **無感常駐運行**：官方或社群擴充套件默默註冊了大量低頻的 MCP Servers（如 notebooks, visualization, data-agent-kit, logging）。
+- ❌ **龐大的 Tool Schema 負載**：幾十個 Tools 的 JSON Schema 在每次推論前全量傳遞，佔據數千 Tokens 頻寬。
+
+---
+
+### 💥 上述病灶導致嚴重的「上下文腐敗 (Context Rot)」：
+1. **Token 瘋狂燃燒**：一句簡單的 "Hello" 或改個按鈕顏色，前置 Prompt 就先燒掉 10,000 ~ 25,000+ Tokens！
+2. **AI 智商嚴重劣化**：巨量雜訊觸發大模型經典的**「迷失於中段 (Lost in the middle)」**現象，AI 無法專注於你的核心業務需求。
+3. **推論延遲飆升**：每次對話皆因龐大的前置 Prompt 產生數秒額外傳輸與推論延遲。
+
+---
+
+### 🩺 Token Doctor 的全方位治理四部曲：
+- 🔬 **毫秒級全域與專案健檢 (`token-doctor`)**：掃描專案規格、計算 0-100 健康評分與精準 Token 底噪。
+- 💊 **一鍵規則自動手術 (`--heal`)**：自動將代碼標準隔離至 `CODING_STANDARDS.md`、剔除重複全域指令、阻斷衝突檔案。
+- 🛡️ **Skills 深度盤點與一鍵凍結 (`--skills` / `--disable-skills`)**：深挖官方與外掛預裝技能，一鍵注入 `disable-model-invocation: true` 凍結為按需喚起，**保留 100% 技能功能，同時每輪瞬間省下上萬 Tokens！**
+- 🔌 **MCP 工具負載透視 (`--mcp`)**：深度盤點 MCP 伺服器與 Tool Schema 消耗，提供精準精簡建議。
 
 ---
 

@@ -16,20 +16,37 @@
 
 ## 🌟 Why Token Doctor?
 
-In modern AI-assisted engineering, agents like **Antigravity**, **Claude Code**, **Cursor**, and **Windsurf** automatically ingest workspace instruction files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `.cursorrules`) on **every single interaction**.
+In modern AI-assisted engineering, agents like **Antigravity**, **Claude Code**, **Cursor**, and **Windsurf** automatically ingest global configs and workspace instruction files on **every single interaction**.
 
-When these instruction files become bloated with:
-- ❌ **Leaked Code Standards** (e.g., component line limits, CSS rules, framework specifics)
-- ❌ **Duplicate Global Directives** (e.g., repeated conventional commits or language rules)
-- ❌ **Conflicting Rule Files** (e.g., having both `GEMINI.md` and `AGENTS.md` loaded simultaneously)
-- ❌ **Always-Loaded Skills Noise** (skills lacking `disable-model-invocation: true`, forcing thousands of tokens of static documentation into every interaction)
+Over time, development environments silently accumulate three distinct tiers of **"Token Toxicity"**:
 
-... your AI environment suffers from **Context Rot**, causing:
-1. **Massive Token Waste**: Burning 3,000+ extra tokens *per message*.
-2. **Degraded AI Intelligence**: "Lost in the middle" attention degradation.
-3. **Slow Latency**: Extra second delays per generation.
+### 1. Workspace Context Spillover
+- ❌ **Leaked Code Standards**: `AGENTS.md` contaminated with component line limits, CSS styling guidelines, and framework specifics, bloating the Implementer agent's working memory.
+- ❌ **Duplicate Global Directives**: Repeatedly declaring Conventional Commits, language formats, or CLI preferences across multiple files.
+- ❌ **Conflicting Instruction Files**: Both `GEMINI.md` and `AGENTS.md` coexisting in the root directory, triggering double injection into the system prompt.
 
-**Token Doctor** comprehensively scans workspace rules, coding standards, and **agent skills**, scores your token health (0-100), and performs **one-click surgery (`--heal`)** to keep your prompt lean and pure.
+### 2. Official & Plugin Skills Overload & Leak
+- ❌ **Silent Skill Pre-loading**: Official IDE extensions (such as Google DataCloud) or community plugins preload 20 to 100+ skills into your environment.
+- ❌ **Missing On-Demand Constraints**: Most skills lack `disable-model-invocation: true`. Consequently, your AI environment injects the full catalog of names and descriptions on **every single turn**, burning **10,000 to 20,000+ tokens of static prompt noise**!
+
+### 3. MCP Servers & Tool Schema Bloat
+- ❌ **Unmonitored Daemon Servers**: Official and third-party tools register heavy MCP servers (e.g., notebooks, visualization, data-agent-kit, cloud logging) that run perpetually in the background.
+- ❌ **Bulky Tool Schemas**: Dozens of tool JSON schemas are serialized into every request, stealing precious context bandwidth.
+
+---
+
+### 💥 The Result: Severe "Context Rot"
+1. **Rampant Token Waste**: Even a trivial prompt like "Hello" or changing a button color burns 10,000 to 25,000+ static tokens before your task even begins.
+2. **Cognitive Degradation**: Massive background noise triggers the well-documented **"Lost in the Middle"** phenomenon, diluting the LLM's attention away from your core requirements.
+3. **High Latency**: Heavy payloads add seconds of serialization and inference delay to every response.
+
+---
+
+### 🩺 Token Doctor's Complete 4-Pillar Solution:
+- 🔬 **Sub-Second Diagnosis (`token-doctor`)**: Comprehensive audit of workspace specs, 0-100 health scoring, and precise noise estimation.
+- 💊 **One-Click Rule Surgery (`--heal`)**: Automatically isolates code standards to `CODING_STANDARDS.md`, strips redundant directives, and resolves root file conflicts.
+- 🛡️ **Skills Deep-Audit & Freeze (`--skills` / `--disable-skills`)**: Unearths official & plugin skills, injecting `disable-model-invocation: true` to freeze them to on-demand — **retaining 100% functionality while instantly reclaiming 10,000+ tokens per turn!**
+- 🔌 **MCP Tool Schema Transparency (`--mcp`)**: Deeply inspects active MCP servers and quantifies tool schema overhead.
 
 ---
 
