@@ -31,12 +31,12 @@ When these instruction files become bloated with:
 
 ```bash
 # One-line install via curl
-curl -fsSL https://raw.githubusercontent.com/tony/token-doctor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/captain-intelligence-tech/token-doctor/main/install.sh | bash
 ```
 
 *Or manual install:*
 ```bash
-git clone https://github.com/tony/token-doctor.git
+git clone https://github.com/captain-intelligence-tech/token-doctor.git
 cd token-doctor
 sudo cp bin/token-doctor /usr/local/bin/token-doctor # or /opt/homebrew/bin/
 ```
