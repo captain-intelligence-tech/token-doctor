@@ -7,7 +7,7 @@
 
 set -e
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 # Color definitions
 RED='\033[0;31m'
@@ -21,6 +21,9 @@ NC='\033[0m' # No Color
 TARGET_DIR="$(pwd)"
 AUTO_HEAL=false
 JSON_MODE=false
+AUDIT_SKILLS=false
+AUDIT_MCP=false
+DISABLE_SKILLS=false
 
 # Auto-detect terminal language (en / zh)
 DETECTED_LANG="en"
@@ -33,23 +36,29 @@ show_help() {
     if [ "$APP_LANG" = "zh" ]; then
         cat << EOF
 Token Doctor (token-doctor) v$VERSION
-專為 AI 代理環境設計的 Prompt 底噪診斷與治理工具
+專為 AI 代理環境設計的 Prompt 底噪診斷與治理工具 (支援 Skills & MCP 深度檢驗)
 
 用法:
   token-doctor [選項] [專案路徑]
 
-選項:
+一般診斷與修復:
   -f, --heal, --fix    執行自動手術 (隔離代碼標準至 CODING_STANDARDS.md、消除重複、建立工單沙盒)
   --json               以 JSON 格式輸出體檢報告 (適用於 CI/CD 與腳本)
   --lang [en|zh]       指定顯示語系 (預設: 自動偵測終端環境)
   -v, --version        顯示版本號
   -h, --help           顯示說明文件
 
+官方/外掛 Skills 與 MCP 治理:
+  --skills             深度盤點全域、外掛與官方預裝 Skills 清單及常駐底噪
+  --mcp                深入盤點 MCP 伺服器與工具端點底噪
+  --disable-skills     一鍵將所有常駐 Skills 注入 disable-model-invocation: true (轉為按需喚起)
+
 範例:
-  token-doctor                  # 診斷當前目錄
-  token-doctor /path/to/project # 診斷指定專案
+  token-doctor                  # 診斷當前專案
+  token-doctor --skills         # 深入盤點所有官方/外掛 Skills 清單與底噪
+  token-doctor --mcp            # 深入盤點 MCP 伺服器配置與 Tool 負載
+  token-doctor --disable-skills # 一鍵手術：將所有常駐 Skills 凍結為按需喚起 (釋放數千 Tokens)
   token-doctor --heal           # 診斷並直接自動修復當前專案
-  token-doctor --lang en        # 以英文介面執行診斷
 EOF
     else
         cat << EOF
@@ -59,18 +68,24 @@ A lightweight diagnostic & auto-healing CLI for AI agent development environment
 Usage:
   token-doctor [options] [project_path]
 
-Options:
+General Options:
   -f, --heal, --fix    Perform auto-healing surgery (isolate standards to CODING_STANDARDS.md, clean duplicates, create sandbox)
   --json               Output diagnostic report in JSON format (ideal for CI/CD)
   --lang [en|zh]       Specify output language (default: auto-detected from locale)
   -v, --version        Show version number
   -h, --help           Show help message
 
+Skills & MCP Hygiene:
+  --skills             Deep-audit global, plugin, and official pre-installed Skills & noise
+  --mcp                Deep-audit registered MCP servers and tool schema overhead
+  --disable-skills     One-click surgery: add disable-model-invocation: true to all always-loaded skills
+
 Examples:
   token-doctor                  # Diagnose current directory
-  token-doctor /path/to/project # Diagnose specific project
+  token-doctor --skills         # Audit all official/plugin skills and token noise
+  token-doctor --mcp            # Audit MCP servers and tool load
+  token-doctor --disable-skills # Auto-freeze all skills to on-demand (saves thousands of tokens)
   token-doctor --heal           # Diagnose and auto-heal current project
-  token-doctor --lang zh        # Run diagnosis in Traditional Chinese
 EOF
     fi
     exit 0
@@ -81,6 +96,18 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -f|--heal|--fix)
             AUTO_HEAL=true
+            shift
+            ;;
+        --skills|--audit-skills)
+            AUDIT_SKILLS=true
+            shift
+            ;;
+        --mcp|--audit-mcp)
+            AUDIT_MCP=true
+            shift
+            ;;
+        --disable-skills|--freeze-skills)
+            DISABLE_SKILLS=true
             shift
             ;;
         --json)
@@ -118,6 +145,266 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ------------------------------------------------------------------------------
+# Action 1: Audit Skills (--skills)
+# ------------------------------------------------------------------------------
+if [ "$AUDIT_SKILLS" = true ]; then
+    echo -e "${BOLD}================================================================${NC}"
+    if [ "$APP_LANG" = "zh" ]; then
+        echo -e "${CYAN}🩺 Token 健檢醫生 - 全域、外掛與官方預裝 Skills 深度盤點報告${NC}"
+    else
+        echo -e "${CYAN}🩺 Token Doctor - Global, Plugin & Official Skills Audit${NC}"
+    fi
+    echo -e "${BOLD}================================================================${NC}"
+
+    SKILL_FILES=()
+    [ -d "$HOME/.gemini/config/skills" ] && while IFS= read -r f; do [ -n "$f" ] && SKILL_FILES+=("$f"); done < <(find "$HOME/.gemini/config/skills" -name "SKILL.md" 2>/dev/null)
+    [ -d "$HOME/.gemini/config/plugins" ] && while IFS= read -r f; do [ -n "$f" ] && SKILL_FILES+=("$f"); done < <(find "$HOME/.gemini/config/plugins" -name "SKILL.md" 2>/dev/null)
+    [ -d "$TARGET_DIR/.agents/skills" ] && while IFS= read -r f; do [ -n "$f" ] && SKILL_FILES+=("$f"); done < <(find "$TARGET_DIR/.agents/skills" -name "SKILL.md" 2>/dev/null)
+
+    TOTAL_COUNT=${#SKILL_FILES[@]}
+    ACTIVE_COUNT=0
+    DISABLED_COUNT=0
+    TOTAL_TOKENS=0
+
+    OFFICIAL_ACTIVE=()
+    PLUGIN_ACTIVE=()
+    PROJECT_ACTIVE=()
+    ON_DEMAND_LIST=()
+
+    for s in "${SKILL_FILES[@]}"; do
+        SKILL_NAME=$(basename "$(dirname "$s")")
+        IS_DISABLED=false
+        grep -q "disable-model-invocation: true" "$s" 2>/dev/null && IS_DISABLED=true
+
+        DESC_LEN=$(grep -A 10 "^description:" "$s" 2>/dev/null | wc -m | tr -d ' ' || echo 100)
+        TOKENS=$((DESC_LEN / 3))
+        [ $TOKENS -lt 50 ] && TOKENS=60
+
+        if [ "$IS_DISABLED" = true ]; then
+            DISABLED_COUNT=$((DISABLED_COUNT + 1))
+            ON_DEMAND_LIST+=("$SKILL_NAME")
+        else
+            ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
+            TOTAL_TOKENS=$((TOTAL_TOKENS + TOKENS))
+            if [[ "$s" == *".gemini/config/skills"* ]]; then
+                OFFICIAL_ACTIVE+=("$SKILL_NAME (~$TOKENS tokens)")
+            elif [[ "$s" == *".agents/skills"* ]]; then
+                PROJECT_ACTIVE+=("$SKILL_NAME (~$TOKENS tokens)")
+            else
+                PLUGIN_ACTIVE+=("$SKILL_NAME (~$TOKENS tokens)")
+            fi
+        fi
+    done
+
+    if [ "$APP_LANG" = "zh" ]; then
+        echo -e "📊 總檢驗技能數: ${BOLD}$TOTAL_COUNT${NC} 個"
+        echo -e "🚨 常駐強制注入 (Active): ${RED}${BOLD}$ACTIVE_COUNT${NC} 個 (每輪對話強制注入說明底噪)"
+        echo -e "🛡️  按需喚起 (On-Demand): ${GREEN}${BOLD}$DISABLED_COUNT${NC} 個 (零靜態底噪)"
+        echo -e "⚡ 技能靜態 Prompt 底噪總計: ${RED}${BOLD}~$TOTAL_TOKENS Tokens / turn${NC}"
+        echo ""
+
+        if [ ${#OFFICIAL_ACTIVE[@]} -gt 0 ]; then
+            echo -e "${BOLD}【🏛️  官方擴充套件預裝技能 (Official/DataCloud)】${NC} (共 ${#OFFICIAL_ACTIVE[@]} 個常駐)"
+            for item in "${OFFICIAL_ACTIVE[@]}"; do
+                echo -e "  ${RED}• $item${NC}"
+            done
+            echo ""
+        fi
+
+        if [ ${#PLUGIN_ACTIVE[@]} -gt 0 ]; then
+            echo -e "${BOLD}【🔌 外掛套件預裝技能 (Plugins)】${NC} (共 ${#PLUGIN_ACTIVE[@]} 個常駐)"
+            for item in "${PLUGIN_ACTIVE[@]}"; do
+                echo -e "  ${YELLOW}• $item${NC}"
+            done
+            echo ""
+        fi
+
+        if [ ${#PROJECT_ACTIVE[@]} -gt 0 ]; then
+            echo -e "${BOLD}【📁 專案專用常駐技能 (Project)】${NC} (共 ${#PROJECT_ACTIVE[@]} 個常駐)"
+            for item in "${PROJECT_ACTIVE[@]}"; do
+                echo -e "  ${YELLOW}• $item${NC}"
+            done
+            echo ""
+        fi
+
+        echo "----------------------------------------------------------------"
+        if [ $ACTIVE_COUNT -gt 0 ]; then
+            echo -e "${BOLD}💊 【醫生處方箋 (Prescription)】${NC}"
+            echo -e "  目前有 $ACTIVE_COUNT 個技能每輪對話強制吃掉 ~$TOTAL_TOKENS Tokens。"
+            echo -e "  👉 執行以下指令一鍵將所有技能凍結為按需喚起（需要時仍可用 /skill-name 呼叫）："
+            echo -e "     ${CYAN}${BOLD}token-doctor --disable-skills${NC}"
+        else
+            echo -e "${GREEN}🎉 恭喜！所有技能均已設定為按需喚起，無任何常駐底噪洩漏！${NC}"
+        fi
+    else
+        echo -e "📊 Total Skills Audited: ${BOLD}$TOTAL_COUNT${NC}"
+        echo -e "🚨 Always-Loaded (Active): ${RED}${BOLD}$ACTIVE_COUNT${NC} (injected into every interaction)"
+        echo -e "🛡️  On-Demand: ${GREEN}${BOLD}$DISABLED_COUNT${NC} (zero prompt noise)"
+        echo -e "⚡ Estimated Skills Prompt Noise: ${RED}${BOLD}~$TOTAL_TOKENS Tokens / turn${NC}"
+        echo ""
+
+        if [ ${#OFFICIAL_ACTIVE[@]} -gt 0 ]; then
+            echo -e "${BOLD}[🏛️  Official / Built-in Pre-installed Skills]${NC} (${#OFFICIAL_ACTIVE[@]} active)"
+            for item in "${OFFICIAL_ACTIVE[@]}"; do
+                echo -e "  ${RED}• $item${NC}"
+            done
+            echo ""
+        fi
+
+        if [ ${#PLUGIN_ACTIVE[@]} -gt 0 ]; then
+            echo -e "${BOLD}[🔌 Plugin Pre-installed Skills]${NC} (${#PLUGIN_ACTIVE[@]} active)"
+            for item in "${PLUGIN_ACTIVE[@]}"; do
+                echo -e "  ${YELLOW}• $item${NC}"
+            done
+            echo ""
+        fi
+
+        echo "----------------------------------------------------------------"
+        if [ $ACTIVE_COUNT -gt 0 ]; then
+            echo -e "${BOLD}💊 [Doctor Recommendations]${NC}"
+            echo -e "  $ACTIVE_COUNT skills consume ~$TOTAL_TOKENS tokens on every turn."
+            echo -e "  👉 Run one-click surgery to freeze them to on-demand:"
+            echo -e "     ${CYAN}${BOLD}token-doctor --disable-skills${NC}"
+        else
+            echo -e "${GREEN}🎉 Outstanding! All skills are configured for on-demand loading.${NC}"
+        fi
+    fi
+    echo -e "${BOLD}================================================================${NC}"
+    exit 0
+fi
+
+# ------------------------------------------------------------------------------
+# Action 2: Audit MCP (--mcp)
+# ------------------------------------------------------------------------------
+if [ "$AUDIT_MCP" = true ]; then
+    echo -e "${BOLD}================================================================${NC}"
+    if [ "$APP_LANG" = "zh" ]; then
+        echo -e "${CYAN}🩺 Token 健檢醫生 - MCP 伺服器與 Tool Schema 底噪盤點${NC}"
+    else
+        echo -e "${CYAN}🩺 Token Doctor - MCP Servers & Tool Noise Audit${NC}"
+    fi
+    echo -e "${BOLD}================================================================${NC}"
+
+    MCP_CONFIG="$HOME/.gemini/config/mcp_config.json"
+    if [ ! -f "$MCP_CONFIG" ]; then
+        if [ "$APP_LANG" = "zh" ]; then
+            echo -e "${GREEN}🎉 未偵測到 $MCP_CONFIG，無任何 MCP 底噪負載。${NC}"
+        else
+            echo -e "${GREEN}🎉 No $MCP_CONFIG found; zero MCP token overhead.${NC}"
+        fi
+        exit 0
+    fi
+
+    MCP_SERVERS=$(grep -E '^[[:space:]]*"[^"]+": \{' "$MCP_CONFIG" 2>/dev/null | grep -v '"mcpServers"' | sed -E 's/^[[:space:]]*"([^"]+)":.*/\1/' || true)
+    SERVER_COUNT=$(echo "$MCP_SERVERS" | grep -v '^$' | wc -l | tr -d ' ' || echo 0)
+    TOTAL_TOOLS=$((SERVER_COUNT * 8))
+    EST_MCP_TOKENS=$((TOTAL_TOOLS * 30))
+
+    if [ "$APP_LANG" = "zh" ]; then
+        echo -e "📂 設定檔: $MCP_CONFIG"
+        echo -e "📊 已註冊 MCP 伺服器: ${BOLD}$SERVER_COUNT${NC} 個"
+        echo -e "⚡ 預估 Tool 總數: ~${BOLD}$TOTAL_TOOLS${NC} 個 Tools"
+        echo -e "⚡ 預估每輪對話 Tool Schema 底噪: ${RED}${BOLD}~$EST_MCP_TOKENS Tokens / turn${NC}"
+        echo ""
+        echo -e "${BOLD}【🔍 伺服器清單與來源識別】${NC}"
+        echo "----------------------------------------------------------------"
+        while IFS= read -r s; do
+            [ -z "$s" ] && continue
+            if grep -A 8 "\"$s\":" "$MCP_CONFIG" | grep -q "datacloud"; then
+                echo -e "  🏛️  ${RED}$s${NC} (官方 DataCloud 擴充注入 ~240 Tokens)"
+            elif grep -A 8 "\"$s\":" "$MCP_CONFIG" | grep -q "npx"; then
+                echo -e "  🔌 ${YELLOW}$s${NC} (外部 npx 套件 ~240 Tokens)"
+            else
+                echo -e "  🌐 ${BLUE}$s${NC} (自訂/雲端端點 ~240 Tokens)"
+            fi
+        done <<< "$MCP_SERVERS"
+
+        echo "----------------------------------------------------------------"
+        echo -e "${BOLD}💊 【醫生處方箋 (Recommendations)】${NC}"
+        echo -e "  • 若非全職雲端大數據開發，官方注入之 notebooks, visualization, data-agent-kit 等伺服器可按需註解"
+        echo -e "  • 備份路徑: $MCP_CONFIG.bak"
+    else
+        echo -e "📂 Config: $MCP_CONFIG"
+        echo -e "📊 Registered Servers: ${BOLD}$SERVER_COUNT${NC}"
+        echo -e "⚡ Estimated Tools: ~${BOLD}$TOTAL_TOOLS${NC} tools"
+        echo -e "⚡ Tool Schema Prompt Overhead: ${RED}${BOLD}~$EST_MCP_TOKENS Tokens / turn${NC}"
+        echo ""
+        echo -e "${BOLD}[🔍 Server Breakdown & Origin]${NC}"
+        echo "----------------------------------------------------------------"
+        while IFS= read -r s; do
+            [ -z "$s" ] && continue
+            if grep -A 8 "\"$s\":" "$MCP_CONFIG" | grep -q "datacloud"; then
+                echo -e "  🏛️  ${RED}$s${NC} (Official DataCloud extension ~240 Tokens)"
+            elif grep -A 8 "\"$s\":" "$MCP_CONFIG" | grep -q "npx"; then
+                echo -e "  🔌 ${YELLOW}$s${NC} (External npm/npx ~240 Tokens)"
+            else
+                echo -e "  🌐 ${BLUE}$s${NC} (Custom endpoint ~240 Tokens)"
+            fi
+        done <<< "$MCP_SERVERS"
+    fi
+    echo -e "${BOLD}================================================================${NC}"
+    exit 0
+fi
+
+# ------------------------------------------------------------------------------
+# Action 3: Freeze/Disable Skills (--disable-skills)
+# ------------------------------------------------------------------------------
+if [ "$DISABLE_SKILLS" = true ]; then
+    echo -e "${BOLD}================================================================${NC}"
+    if [ "$APP_LANG" = "zh" ]; then
+        echo -e "${CYAN}💊 正在執行技能降噪手術：注入 disable-model-invocation: true${NC}"
+    else
+        echo -e "${CYAN}💊 Performing Skills Noise Reduction: Injecting disable-model-invocation: true${NC}"
+    fi
+    echo -e "${BOLD}================================================================${NC}"
+
+    SKILL_FILES=()
+    [ -d "$HOME/.gemini/config/skills" ] && while IFS= read -r f; do [ -n "$f" ] && SKILL_FILES+=("$f"); done < <(find "$HOME/.gemini/config/skills" -name "SKILL.md" 2>/dev/null)
+    [ -d "$HOME/.gemini/config/plugins" ] && while IFS= read -r f; do [ -n "$f" ] && SKILL_FILES+=("$f"); done < <(find "$HOME/.gemini/config/plugins" -name "SKILL.md" 2>/dev/null)
+    [ -d "$TARGET_DIR/.agents/skills" ] && while IFS= read -r f; do [ -n "$f" ] && SKILL_FILES+=("$f"); done < <(find "$TARGET_DIR/.agents/skills" -name "SKILL.md" 2>/dev/null)
+
+    MODIFIED_COUNT=0
+    for s in "${SKILL_FILES[@]}"; do
+        if ! grep -q "disable-model-invocation: true" "$s" 2>/dev/null; then
+            python3 -c "
+import sys
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as f:
+    c = f.read()
+if 'disable-model-invocation: true' not in c:
+    if c.startswith('---'):
+        parts = c.split('---', 2)
+        if len(parts) >= 3:
+            nc = '---' + parts[1].rstrip() + '\ndisable-model-invocation: true\n---' + parts[2]
+        else:
+            nc = '---\ndisable-model-invocation: true\n---\n' + c
+    else:
+        nc = '---\ndisable-model-invocation: true\n---\n\n' + c
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(nc)
+" "$s"
+            MODIFIED_COUNT=$((MODIFIED_COUNT + 1))
+            SKILL_NAME=$(basename "$(dirname "$s")")
+            echo -e "  ${GREEN}✔${NC} 已轉為按需喚起: ${BOLD}$SKILL_NAME${NC}"
+        fi
+    done
+
+    echo "----------------------------------------------------------------"
+    SAVED_TOKENS=$((MODIFIED_COUNT * 65))
+    if [ "$APP_LANG" = "zh" ]; then
+        echo -e "${GREEN}${BOLD}🎉 手術大獲成功！共治理 $MODIFIED_COUNT 個常駐技能。${NC}"
+        echo -e "⚡ 預估每輪對話立即釋放: ${BOLD}~$SAVED_TOKENS Tokens${NC} 的靜態底噪！"
+        echo -e "💡 說明：技能本體未受任何損害，你在對話中依然可以透過斜線指令 (如 /skill-name) 或按需使用。"
+    else
+        echo -e "${GREEN}${BOLD}🎉 Surgery Successful! Frozen $MODIFIED_COUNT skills to on-demand.${NC}"
+        echo -e "⚡ Estimated Prompt Noise Saved: ${BOLD}~$SAVED_TOKENS Tokens / turn${NC}!"
+        echo -e "💡 Note: Skills remain fully functional via explicit slash commands or on-demand calls."
+    fi
+    echo -e "${BOLD}================================================================${NC}"
+    exit 0
+fi
 
 cd "$TARGET_DIR"
 PROJECT_NAME="$(basename "$TARGET_DIR")"
@@ -242,7 +529,12 @@ if [ "$HAS_SCRATCH" = false ]; then
     fi
 fi
 
-# 5. Global Skills and MCP tool load probing
+# 5. Skills and MCP tool load probing (Global & Project)
+PROJECT_AUTO_SKILLS=0
+if [ -d ".agents/skills" ]; then
+    PROJECT_AUTO_SKILLS=$(grep -r -L "disable-model-invocation: true" .agents/skills 2>/dev/null | grep "/SKILL.md" | wc -l | tr -d ' ' || echo 0)
+fi
+
 GLOBAL_AUTO_SKILLS=0
 if [ -d "$HOME/.gemini/config/plugins" ]; then
     GLOBAL_AUTO_SKILLS=$(grep -r -L "disable-model-invocation: true" "$HOME/.gemini/config/plugins" 2>/dev/null | grep "/SKILL.md" | wc -l | tr -d ' ' || echo 0)
@@ -252,17 +544,46 @@ if [ -d "$HOME/.gemini/config/skills" ]; then
     GLOBAL_AUTO_SKILLS=$((GLOBAL_AUTO_SKILLS + LOOSE_SKILLS))
 fi
 
+TOTAL_AUTO_SKILLS=$((PROJECT_AUTO_SKILLS + GLOBAL_AUTO_SKILLS))
+
+if [ "$TOTAL_AUTO_SKILLS" -gt 15 ]; then
+    SCORE=$((SCORE - 10))
+    if [ "$APP_LANG" = "zh" ]; then
+        SYMPTOMS+=("⚠️  [常駐技能底噪過高] 偵測到 $TOTAL_AUTO_SKILLS 個技能未宣告 disable-model-invocation: true (含官方/外掛預裝)，每輪對話強制注入！(扣 10 分)")
+        HEAL_ACTIONS+=("執行 'token-doctor --skills' 盤點清單，或執行 'token-doctor --disable-skills' 一鍵轉為按需載入")
+    else
+        SYMPTOMS+=("⚠️  [Excessive Always-Loaded Skills] Detected $TOTAL_AUTO_SKILLS skills without disable-model-invocation: true, preloading into every turn! (-10 pts)")
+        HEAL_ACTIONS+=("Run 'token-doctor --skills' to inspect, or 'token-doctor --disable-skills' to freeze to on-demand")
+    fi
+elif [ "$TOTAL_AUTO_SKILLS" -gt 8 ]; then
+    SCORE=$((SCORE - 5))
+    if [ "$APP_LANG" = "zh" ]; then
+        SYMPTOMS+=("ℹ️  [技能載入提示] 偵測到 $TOTAL_AUTO_SKILLS 個常駐技能，建議執行 'token-doctor --skills' 檢視。(扣 5 分)")
+    else
+        SYMPTOMS+=("ℹ️  [Skills Load Notice] Detected $TOTAL_AUTO_SKILLS always-loaded skills; inspect with 'token-doctor --skills'. (-5 pts)")
+    fi
+fi
+
 MCP_TOOLS_COUNT=0
 if [ -f "$HOME/.gemini/config/mcp_config.json" ]; then
-    MCP_SERVERS=$(grep -o '"[^"]*": {' "$HOME/.gemini/config/mcp_config.json" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-    MCP_TOOLS_COUNT=$((MCP_SERVERS * 8))
+    MCP_SERVERS_LIST=$(grep -E '^[[:space:]]*"[^"]+": \{' "$HOME/.gemini/config/mcp_config.json" 2>/dev/null | grep -v '"mcpServers"' | sed -E 's/^[[:space:]]*"([^"]+)":.*/\1/' || true)
+    MCP_SERVER_COUNT=$(echo "$MCP_SERVERS_LIST" | grep -v '^$' | wc -l | tr -d ' ' || echo 0)
+    MCP_TOOLS_COUNT=$((MCP_SERVER_COUNT * 8))
+
+    if [ "$MCP_SERVER_COUNT" -gt 4 ]; then
+        if [ "$APP_LANG" = "zh" ]; then
+            SYMPTOMS+=("ℹ️  [MCP 工具底噪] 已載入 $MCP_SERVER_COUNT 個 MCP 伺服器 (約 $MCP_TOOLS_COUNT 個 Tools)，可執行 'token-doctor --mcp' 檢視官方預裝。")
+        else
+            SYMPTOMS+=("ℹ️  [MCP Tools Overhead] $MCP_SERVER_COUNT MCP servers active (~$MCP_TOOLS_COUNT tools); inspect via 'token-doctor --mcp'.")
+        fi
+    fi
 fi
 
 # Base token estimation
 EST_BASE_TOKENS=500
 EST_BASE_TOKENS=$((EST_BASE_TOKENS + (AGENTS_CHARS / 2)))
 EST_BASE_TOKENS=$((EST_BASE_TOKENS + (GEMINI_LINES * 10)))
-EST_BASE_TOKENS=$((EST_BASE_TOKENS + (GLOBAL_AUTO_SKILLS * 60)))
+EST_BASE_TOKENS=$((EST_BASE_TOKENS + (TOTAL_AUTO_SKILLS * 60)))
 EST_BASE_TOKENS=$((EST_BASE_TOKENS + (MCP_TOOLS_COUNT * 25)))
 
 [ $SCORE -lt 0 ] && SCORE=0
@@ -280,6 +601,7 @@ if [ "$JSON_MODE" = true ]; then
   "hasDuplicateGemini": $HAS_GEMINI,
   "hasCodingStandards": $HAS_STANDARDS,
   "hasScratchSandbox": $HAS_SCRATCH,
+  "autoSkillsCount": $TOTAL_AUTO_SKILLS,
   "symptomsCount": ${#SYMPTOMS[@]}
 }
 EOF

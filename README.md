@@ -22,20 +22,21 @@ When these instruction files become bloated with:
 - ❌ **Leaked Code Standards** (e.g., component line limits, CSS rules, framework specifics)
 - ❌ **Duplicate Global Directives** (e.g., repeated conventional commits or language rules)
 - ❌ **Conflicting Rule Files** (e.g., having both `GEMINI.md` and `AGENTS.md` loaded simultaneously)
+- ❌ **Always-Loaded Skills Noise** (skills lacking `disable-model-invocation: true`, forcing thousands of tokens of static documentation into every interaction)
 
 ... your AI environment suffers from **Context Rot**, causing:
 1. **Massive Token Waste**: Burning 3,000+ extra tokens *per message*.
 2. **Degraded AI Intelligence**: "Lost in the middle" attention degradation.
 3. **Slow Latency**: Extra second delays per generation.
 
-**Token Doctor** diagnoses your workspace in milliseconds, scores your token health (0-100), and performs **one-click surgery (`--heal`)** to keep your prompt lean and pure.
+**Token Doctor** comprehensively scans workspace rules, coding standards, and **agent skills**, scores your token health (0-100), and performs **one-click surgery (`--heal`)** to keep your prompt lean and pure.
 
 ---
 
 ## ⚡ Quick Install
 
 ```bash
-# One-line install via curl
+# One-line install via curl (installs CLI and auto-configures Antigravity Agent Skill)
 curl -fsSL https://raw.githubusercontent.com/captain-intelligence-tech/token-doctor/main/install.sh | bash
 ```
 
@@ -44,13 +45,17 @@ curl -fsSL https://raw.githubusercontent.com/captain-intelligence-tech/token-doc
 git clone https://github.com/captain-intelligence-tech/token-doctor.git
 cd token-doctor
 sudo cp bin/token-doctor /usr/local/bin/token-doctor # or /opt/homebrew/bin/
+
+# Install Agent Skill (for Antigravity / Claude Code)
+mkdir -p ~/.gemini/config/skills/token-doctor
+cp skills/token-doctor/SKILL.md ~/.gemini/config/skills/token-doctor/
 ```
 
 ---
 
 ## 🚀 Usage
 
-### 1. Diagnose Current Project
+### 1. Diagnose Workspace & Skills Noise
 ```bash
 token-doctor
 ```
@@ -68,9 +73,11 @@ Output:
 ----------------------------------------------------------------
 🚨 [Code Standard Spillover] AGENTS.md (lines 5,23) leaks styling, framework, or line-count rules! (-15 pts)
 ⚠️  [Bloated Context] AGENTS.md is 71 lines, exceeding the recommended 20-30 line context pointer. (-15 pts)
+⚠️  [Excessive Always-Loaded Skills] Detected 28 skills without disable-model-invocation: true, preloading into every turn! (-10 pts)
 ----------------------------------------------------------------
 💊 [Doctor Recommendations]
   • Isolate coding & styling rules into CODING_STANDARDS.md
+  • Add disable-model-invocation: true to low-frequency skills for on-demand loading
 
 👉 To automatically heal all issues, run in your terminal:
    token-doctor --heal
@@ -87,30 +94,84 @@ Automatically:
 - ✅ Backs up and deactivates conflicting `GEMINI.md`.
 - ✅ Ensures `.scratch/` ticket sandbox exists with `.gitignore`.
 
-### 3. Language Selection (Bilingual CLI)
+### 3. Deep-Audit Official & Plugin Skills (`--skills`)
+Official extensions (such as Google DataCloud, Antigravity built-ins) and third-party plugins often preload dozens or hundreds of skills. If they lack `disable-model-invocation: true`, your AI environment injects the full catalog into **every turn**, burning 20,000+ tokens of prompt noise!
+```bash
+token-doctor --skills
+```
+Output:
+```text
+================================================================
+🩺 Token Doctor - Global, Plugin & Official Skills Audit
+================================================================
+📊 Total Skills Audited: 131
+🚨 Always-Loaded (Active): 96 (injected into every interaction)
+🛡️ On-Demand: 35 (zero prompt noise)
+⚡ Estimated Skills Prompt Noise: ~20,276 Tokens / turn
+
+[🏛️ Official / Built-in Pre-installed Skills] (25 active)
+  • gcp-spark (~185 tokens)
+  • gcp-dataflow (~359 tokens)
+  • dbt-bigquery (~158 tokens)
+  ...
+[🔌 Plugin Pre-installed Skills] (71 active)
+  • xlsx (~406 tokens)
+  • pdf (~276 tokens)
+  ...
+----------------------------------------------------------------
+💊 [Doctor Recommendations]
+  👉 Run one-click surgery to freeze them to on-demand:
+     token-doctor --disable-skills
+================================================================
+```
+
+### 4. One-Click Skills Noise Surgery (`--disable-skills`)
+Safely injects `disable-model-invocation: true` into all always-loaded skills:
+```bash
+token-doctor --disable-skills
+```
+- ✅ **Zero Destruction**: Retains 100% of the skill code, logic, and resources.
+- ✅ **Fully Usable On-Demand**: Trigger them anytime via explicit slash commands (e.g. `/token-doctor`) or contextual queries.
+- ✅ **Instant Savings**: Reclaims thousands of tokens per conversation turn immediately!
+
+### 5. Audit MCP Servers & Tool Schema Noise (`--mcp`)
+Inspects active servers in `~/.gemini/config/mcp_config.json`, identifies official extensions (e.g., `notebooks`, `visualization`, `data-agent-kit`) vs custom tools, and estimates tool schema overhead:
+```bash
+token-doctor --mcp
+```
+
+### 6. Language Selection (Bilingual CLI)
 Token Doctor automatically detects your terminal language (`LANG`/`LC_ALL`), but you can explicitly specify it:
 ```bash
 token-doctor --lang en    # English output
 token-doctor --lang zh    # Traditional Chinese output
 ```
 
-### 4. CI/CD & JSON Output
+### 7. CI/CD & JSON Output
 ```bash
 token-doctor --json
 ```
 
 ---
 
-## 🤖 AI Agent Skill Integration (`/token-doctor`)
+## 🤖 Bundled AI Agent "Diagnostic Skill" (`skills/token-doctor`)
 
-Token Doctor comes bundled with an official Agent Skill for **Antigravity** and **Claude Code**:
+Token Doctor is more than a CLI tool — it includes an official **Diagnostic Agent Skill** built for **Antigravity** and **Claude Code**:
 
-1. Copy `skills/token-doctor` to your agent skills directory (`~/.gemini/config/plugins/...` or `.agents/skills/`).
-2. Inside your IDE chat, simply type:
-   ```text
-   /token-doctor
-   ```
-   The AI will run the diagnosis and offer conversational recommendations!
+### 💡 Dual-Surface Workflow:
+- **IDE (Staff Officer)**: Type `/token-doctor` or ask "diagnose token health" in your chat. The AI agent executes probe diagnostics and provides tailored architecture advice.
+- **CLI (Engineer)**: When mass refactoring is needed, execute `token-doctor --heal` in the terminal for sub-second surgery without burning chat tokens on repetitive rewrites.
+
+### 📦 Manual Skill Installation:
+```bash
+# Global install (accessible across all workspaces)
+mkdir -p ~/.gemini/config/skills/token-doctor
+cp skills/token-doctor/SKILL.md ~/.gemini/config/skills/token-doctor/
+
+# Project-level install (active in current repository only)
+mkdir -p .agents/skills/token-doctor
+cp skills/token-doctor/SKILL.md .agents/skills/token-doctor/
+```
 
 ---
 
