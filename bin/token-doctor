@@ -1,0 +1,351 @@
+#!/bin/bash
+# ==============================================================================
+# Token Doctor (token-doctor) v1.0.0
+# AI 開發環境專屬的 Token 體檢醫生與治理工具
+# 專門診斷：Prompt 底噪過大、規範隔離失效、代碼標準外溢與規則重複
+# ==============================================================================
+
+set -e
+
+VERSION="1.0.0"
+
+# 顏色定義
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+TARGET_DIR="$(pwd)"
+AUTO_HEAL=false
+JSON_MODE=false
+
+show_help() {
+    cat << EOF
+Token Doctor (token-doctor) v$VERSION
+用法:
+  token-doctor [選項] [專案路徑]
+
+選項:
+  -f, --heal, --fix    執行自動手術 (自動將代碼標準移至 CODING_STANDARDS.md、消除重複、建立沙盒)
+  --json               以 JSON 格式輸出體檢報告
+  -v, --version        顯示版本號
+  -h, --help           顯示說明文件
+
+範例:
+  token-doctor                  # 診斷當前目錄
+  token-doctor /path/to/project # 診斷指定專案
+  token-doctor --heal           # 診斷並直接自動修復當前專案
+EOF
+    exit 0
+}
+
+# 參數解析
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -f|--heal|--fix)
+            AUTO_HEAL=true
+            shift
+            ;;
+        --json)
+            JSON_MODE=true
+            shift
+            ;;
+        -v|--version)
+            echo "token-doctor v$VERSION"
+            exit 0
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            if [ -d "$1" ]; then
+                TARGET_DIR="$1"
+            else
+                echo -e "${RED}錯誤: 路徑不存在 [$1]${NC}" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+cd "$TARGET_DIR"
+PROJECT_NAME="$(basename "$TARGET_DIR")"
+
+# ------------------------------------------------------------------------------
+# 體檢項目與指標計算
+# ------------------------------------------------------------------------------
+
+SCORE=100
+SYMPTOMS=()
+HEAL_ACTIONS=()
+
+# 1. 檢查專案雙重載入 (GEMINI.md + AGENTS.md)
+HAS_GEMINI=false
+HAS_AGENTS=false
+GEMINI_LINES=0
+AGENTS_LINES=0
+AGENTS_CHARS=0
+
+[ -f "GEMINI.md" ] && HAS_GEMINI=true && GEMINI_LINES=$(wc -l < GEMINI.md | tr -d ' ')
+[ -f "AGENTS.md" ] && HAS_AGENTS=true && AGENTS_LINES=$(wc -l < AGENTS.md | tr -d ' ') && AGENTS_CHARS=$(wc -m < AGENTS.md | tr -d ' ')
+
+if [ "$HAS_GEMINI" = true ] && [ "$HAS_AGENTS" = true ]; then
+    SCORE=$((SCORE - 20))
+    SYMPTOMS+=("🚨 [雙重載入風險] 專案根目錄同時存在 AGENTS.md 與 GEMINI.md，IDE 每次對話雙重注入！(扣 20 分)")
+    HEAL_ACTIONS+=("備份並移除 GEMINI.md (重命名為 GEMINI.md.bak)")
+elif [ "$HAS_GEMINI" = true ]; then
+    SYMPTOMS+=("ℹ️  [命名指針] 專案使用 GEMINI.md，建議統一標準化為 AGENTS.md。")
+fi
+
+# 2. 檢查 AGENTS.md 規模與外溢壞味道
+SPILL_SMELLS=()
+if [ "$HAS_AGENTS" = true ]; then
+    # 檢查組件行數、框架優化等代碼標準
+    if grep -E -n "行內|行數|React.lazy|單檔.*行|命名規範|CSS|SCSS|border-|leading-" AGENTS.md > /dev/null 2>&1; then
+        SCORE=$((SCORE - 15))
+        MATCH_LINES=$(grep -E -n "行內|行數|React.lazy|單檔.*行|命名規範|CSS|SCSS|border-|leading-" AGENTS.md | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')
+        SYMPTOMS+=("🚨 [代碼標準外溢] AGENTS.md (第 $MATCH_LINES 行) 混入組件行數、樣式或框架調用規範！(扣 15 分)")
+        HEAL_ACTIONS+=("將代碼與樣式規範安全剪下，移植至 CODING_STANDARDS.md")
+    fi
+
+    # 檢查全域重複規則
+    if grep -E -n "Conventional Commits|繁體中文|CLI/API/curl" AGENTS.md > /dev/null 2>&1; then
+        SCORE=$((SCORE - 10))
+        MATCH_LINES=$(grep -E -n "Conventional Commits|繁體中文|CLI/API/curl" AGENTS.md | cut -d: -f1 | tr '\n' ',' | sed 's/,$//')
+        SYMPTOMS+=("⚠️  [全域規則重複] AGENTS.md (第 $MATCH_LINES 行) 重複宣告繁中/Git Conventional Commit。(扣 10 分)")
+        HEAL_ACTIONS+=("刪除 AGENTS.md 內重複的全域指令")
+    fi
+
+    # 檢查長度
+    if [ "$AGENTS_LINES" -gt 60 ]; then
+        SCORE=$((SCORE - 15))
+        SYMPTOMS+=("⚠️  [文檔體積過重] AGENTS.md 高達 $AGENTS_LINES 行，已偏離 20~30 行純粹業務指針的標準。(扣 15 分)")
+    elif [ "$AGENTS_LINES" -gt 40 ]; then
+        SCORE=$((SCORE - 5))
+        SYMPTOMS+=("ℹ️  [文檔體積略高] AGENTS.md 目前 $AGENTS_LINES 行，有精簡為極簡指針的潛力。(扣 5 分)")
+    fi
+else
+    SCORE=$((SCORE - 15))
+    SYMPTOMS+=("⚠️  [缺乏導航地圖] 專案缺乏 AGENTS.md，AI 進入專案缺乏上下文錨定！(扣 15 分)")
+    HEAL_ACTIONS+=("建立標準極簡 AGENTS.md 專案導航地圖")
+fi
+
+# 3. 檢查 CODING_STANDARDS.md 存在與隔離
+HAS_STANDARDS=false
+[ -f "CODING_STANDARDS.md" ] && HAS_STANDARDS=true
+
+if [ "$HAS_STANDARDS" = false ]; then
+    SCORE=$((SCORE - 10))
+    SYMPTOMS+=("⚠️  [缺乏審查防線] 專案無 CODING_STANDARDS.md，代碼審查時無深模組與壞味道檢驗標準。(扣 10 分)")
+    HEAL_ACTIONS+=("建立 CODING_STANDARDS.md (含 Martin Fowler 12 大壞味道防線)")
+fi
+
+# 4. 檢查 .scratch 沙盒
+HAS_SCRATCH=false
+[ -d ".scratch" ] && HAS_SCRATCH=true
+
+if [ "$HAS_SCRATCH" = false ]; then
+    SCORE=$((SCORE - 10))
+    SYMPTOMS+=("⚠️  [缺乏工單沙盒] 專案無 .scratch/ 目錄，工單與特徵規格書可能污染主倉庫！(扣 10 分)")
+    HEAL_ACTIONS+=("建立 .scratch/ 沙盒目錄並注入 .gitignore")
+fi
+
+# 5. 全域技能與 MCP 負載探測
+GLOBAL_AUTO_SKILLS=0
+if [ -d "$HOME/.gemini/config/plugins" ]; then
+    GLOBAL_AUTO_SKILLS=$(grep -r -L "disable-model-invocation: true" "$HOME/.gemini/config/plugins" 2>/dev/null | grep "/SKILL.md" | wc -l | tr -d ' ')
+fi
+if [ -d "$HOME/.gemini/config/skills" ]; then
+    LOOSE_SKILLS=$(find "$HOME/.gemini/config/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+    GLOBAL_AUTO_SKILLS=$((GLOBAL_AUTO_SKILLS + LOOSE_SKILLS))
+fi
+
+MCP_TOOLS_COUNT=0
+if [ -f "$HOME/.gemini/config/mcp_config.json" ]; then
+    MCP_SERVERS=$(grep -o '"[^"]*": {' "$HOME/.gemini/config/mcp_config.json" | wc -l | tr -d ' ')
+    MCP_TOOLS_COUNT=$((MCP_SERVERS * 8))
+fi
+
+# 計算預估每輪底噪
+EST_BASE_TOKENS=500 # user_global
+EST_BASE_TOKENS=$((EST_BASE_TOKENS + (AGENTS_CHARS / 2)))
+EST_BASE_TOKENS=$((EST_BASE_TOKENS + (GEMINI_LINES * 10)))
+EST_BASE_TOKENS=$((EST_BASE_TOKENS + (GLOBAL_AUTO_SKILLS * 60)))
+EST_BASE_TOKENS=$((EST_BASE_TOKENS + (MCP_TOOLS_COUNT * 25)))
+
+[ $SCORE -lt 0 ] && SCORE=0
+
+# ------------------------------------------------------------------------------
+# JSON 輸出模式
+# ------------------------------------------------------------------------------
+if [ "$JSON_MODE" = true ]; then
+    cat << EOF
+{
+  "project": "$PROJECT_NAME",
+  "score": $SCORE,
+  "estimatedBaseTokens": $EST_BASE_TOKENS,
+  "agentsLines": $AGENTS_LINES,
+  "hasDuplicateGemini": $HAS_GEMINI,
+  "hasCodingStandards": $HAS_STANDARDS,
+  "hasScratchSandbox": $HAS_SCRATCH,
+  "symptomsCount": ${#SYMPTOMS[@]}
+}
+EOF
+    exit 0
+fi
+
+# ------------------------------------------------------------------------------
+# 終端人眼可讀輸出
+# ------------------------------------------------------------------------------
+echo -e "${BOLD}================================================================${NC}"
+echo -e "${CYAN}🩺 Token 健檢醫生 - 專案健康診斷報告${NC}"
+echo -e "📂 專案名稱: ${BOLD}$PROJECT_NAME${NC} (${TARGET_DIR})"
+echo -e "${BOLD}================================================================${NC}"
+
+# 分數標籤
+SCORE_COLOR=$GREEN
+STATUS_TEXT="健康純淨 (Lean & Clean)"
+if [ $SCORE -lt 70 ]; then
+    SCORE_COLOR=$RED
+    STATUS_TEXT="嚴重肥胖 (Severe Context Rot)"
+elif [ $SCORE -lt 85 ]; then
+    SCORE_COLOR=$YELLOW
+    STATUS_TEXT="輕度超重 (Minor Spillover)"
+fi
+
+echo -e "📊 健康綜合評分: ${SCORE_COLOR}${BOLD}$SCORE / 100${NC} [${SCORE_COLOR}$STATUS_TEXT${NC}]"
+echo -e "⚡ 預估每輪對話靜態底噪: ${BOLD}~$EST_BASE_TOKENS Tokens${NC} (建議目標: < 1,200 Tokens)"
+echo ""
+echo -e "${BOLD}【🔍 病灶盤點與診斷清單】${NC}"
+echo "----------------------------------------------------------------"
+
+if [ ${#SYMPTOMS[@]} -eq 0 ]; then
+    echo -e "${GREEN}🎉 完美無瑕！該專案未偵測到任何 Token 洩漏或規範隔離外溢病灶。${NC}"
+else
+    for s in "${SYMPTOMS[@]}"; do
+        if [[ "$s" == 🚨* ]]; then
+            echo -e "${RED}$s${NC}"
+        elif [[ "$s" == ⚠️* ]]; then
+            echo -e "${YELLOW}$s${NC}"
+        else
+            echo -e "${BLUE}$s${NC}"
+        fi
+    done
+fi
+
+echo "----------------------------------------------------------------"
+
+# ------------------------------------------------------------------------------
+# 執行自動手術 (Auto-Heal)
+# ------------------------------------------------------------------------------
+if [ "$AUTO_HEAL" = true ]; then
+    echo ""
+    echo -e "${BOLD}💊 【醫生正在執行手術處方 (Auto-Heal)...】${NC}"
+    echo "----------------------------------------------------------------"
+
+    # 1. 建立 .scratch
+    if [ "$HAS_SCRATCH" = false ]; then
+        mkdir -p .scratch
+        echo "*" > .scratch/.gitignore
+        echo -e "${GREEN}✅ [手術 1/4] 已建立工單沙盒 .scratch/ (配置 .gitignore)${NC}"
+    fi
+
+    # 2. 備份移除重複的 GEMINI.md
+    if [ "$HAS_GEMINI" = true ] && [ "$HAS_AGENTS" = true ]; then
+        mv GEMINI.md GEMINI.md.bak
+        echo -e "${GREEN}✅ [手術 2/4] 已將衝突的 GEMINI.md 備份為 GEMINI.md.bak 阻斷雙重載入${NC}"
+    fi
+
+    # 3. 建立 CODING_STANDARDS.md (若無)
+    if [ "$HAS_STANDARDS" = false ]; then
+        cat << 'EOF' > CODING_STANDARDS.md
+# CODING_STANDARDS.md
+
+> **Token 門禁宣告**：本文件**僅供 Reviewer (審查 Agent) 在獨立 Context 載入**。實作 Agent (Implementer) 嚴禁預載本文件，專注於 Spec 驗收與 TDD (Red ➔ Green)。
+
+---
+
+## 1. 架構原則 (Architectural Integrity)
+- **深模組設計 (Deep Modules)**：介面極簡、實作深厚。杜絕穿透型 (Pass-through) 淺模組。
+- **測試接縫 (Seams)**：僅在公開介面/API 進行外部行為測試，嚴禁對私有內部細節寫測試。
+- **資訊隱藏 (Information Hiding)**：狀態與複雜邏輯封裝於模組內部，對外暴露最少概念。
+
+---
+
+## 2. 代碼壞味道防線 (Martin Fowler 12 Smells)
+審查 Agent 發現以下壞味道時，**必須直接自動重構修復**：
+1. **神秘命名 (Mysterious Name)**：變數、函式未能清晰表述意圖。
+2. **重複代碼 (Duplicated Code)**：相同邏輯出現在多處。
+3. **過長函式 (Long Function)**：單一函式職責過多，超過 40 行應考慮提煉。
+4. **發散式變化 (Divergent Change)**：單一模組因不同原因被反覆修改。
+5. **散彈式修改 (Shotgun Surgery)**：修改一處需求需同時動到多個檔案。
+6. **依戀情節 (Feature Envy)**：某函式對另一個物件的資料互動頻率高於自身。
+7. **資料泥團 (Data Clumps)**：總是一起出現的多個參數，應提煉為物件。
+8. **基本型別偏執 (Primitive Obsession)**：拒絕建立小型領域型別，全用 string/number。
+9. **反覆的 switch/if (Repeated Switches)**：應以多型或狀態表取代。
+10. **冗員元素 (Lazy Element)**：無實質意義的透傳型類別或包裝函式。
+11. **誇誇其談未來性 (Speculative Generality)**：為不存在的需求預留抽象。
+12. **註解遮羞布 (Comments as Deodorant)**：用註解解釋糟糕代碼，應直接重構代碼本身。
+
+---
+
+## 3. 本專案特化代碼標準 (Project Standards)
+EOF
+        echo -e "${GREEN}✅ [手術 3/4] 已建立標準 CODING_STANDARDS.md 審查防線${NC}"
+    fi
+
+    # 4. 追加極簡工作流指針 (若無)
+    HOOK_MARKER="Matt Pocock Engineering Agent Workflow"
+    if [ "$HAS_AGENTS" = true ]; then
+        if ! grep -q "$HOOK_MARKER" AGENTS.md; then
+            cat << 'EOF' >> AGENTS.md
+
+---
+
+## AI 工程化開發管線 (Matt Pocock v1.3)
+本專案遵循全局 [Matt Pocock Engineering Agent Workflow v1.3](file:///Users/tony/.gemini/GEMINI.md)。
+- **規格與工單**: `.scratch/<feature-slug>/` (spec.md 與 tracer bullet 工單)
+- **代碼標準**: [CODING_STANDARDS.md](file:///CODING_STANDARDS.md)（僅供 Reviewer 審查讀取，實作嚴禁預載）
+- **核心入口**: 遵循全域 `/grill-me` ➔ `/to-spec` ➔ `/to-tickets` ➔ `tdd` ➔ `code-review` ➔ `/pr` ➔ `/retro`
+EOF
+            echo -e "${GREEN}✅ [手術 4/4] 已在現有 AGENTS.md 尾端追加極簡工作流指針${NC}"
+        else
+            echo -e "ℹ️  [手術 4/4] AGENTS.md 已包含工作流指針，略過追加。"
+        fi
+    else
+        cat << 'EOF' > AGENTS.md
+# AGENTS.md
+
+本專案遵循全局 [Matt Pocock Engineering Agent Workflow v1.3](file:///Users/tony/.gemini/GEMINI.md)。
+
+## 專案導航地圖 (Context Map)
+- **規格與工單**: `.scratch/<feature-slug>/`
+- **架構決策 (ADR)**: docs/adr/
+- **領域名詞 (Glossary)**: GLOSSARY.md
+- **代碼標準**: [CODING_STANDARDS.md](file:///CODING_STANDARDS.md)（僅供 Reviewer 讀取，實作 Agent 嚴禁預載）
+- **核心入口**: 遵循全局八階段開發管線 (`/grill-me` 至 `/retro`)
+EOF
+        echo -e "${GREEN}✅ [手術 4/4] 已為專案建立極簡 AGENTS.md 導航地圖${NC}"
+    fi
+
+    echo "--------------------------------------------------------"
+    echo -e "${GREEN}${BOLD}🎉 手術修復完成！重新測量健康指數中...${NC}"
+    exec "$0" "$TARGET_DIR"
+else
+    if [ ${#HEAL_ACTIONS[@]} -gt 0 ]; then
+        echo -e "${BOLD}💊 【醫生處方箋 (Recommendations)】${NC}"
+        for h in "${HEAL_ACTIONS[@]}"; do
+            echo -e "  • $h"
+        done
+        echo ""
+        echo -e "👉 想要自動完成上述修復？請在終端機執行："
+        echo -e "   ${CYAN}${BOLD}token-doctor --heal${NC}"
+        echo ""
+    fi
+fi
+
+echo -e "${BOLD}================================================================${NC}"
